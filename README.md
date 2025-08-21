@@ -22,9 +22,6 @@ Antes de começar, verifique se você atendeu aos seguintes requisitos:
 Para instalar, siga estas etapas:
 
 
-## 😄 Seja um dos contribuidores
-
-Quer fazer parte desse projeto? Clique [AQUI](CONTRIBUTING.md) e leia como contribuir.
 
 ## 📝 Licença
 
