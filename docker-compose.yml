@@ -1,0 +1,19 @@
+
+version: "3.8"
+services:
+  # mqtt5 eclipse-mosquitto
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: mosquitto
+    ports:
+      - "1883:1883" #default mqtt port
+    volumes:
+      - ./config:/mosquitto/config:rw
+      - ./data:/mosquitto/data:rw
+      - ./log:/mosquitto/log:rw
+    restart: always
+
+volumes:
+  config:
+  data:
+  log:
