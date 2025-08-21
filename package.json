@@ -1,0 +1,16 @@
+{
+  "name": "mqtt-chat-server",
+  "version": "1.0.0",
+  "main": "index.js",
+  "repository": "https://github.com/riannbarbosa/mqtt-chat-server.git",
+  "author": "Rian Barbosa <riannbarbosa5@gmail.com>",
+  "license": "MIT",
+  "script": {
+    "start": "tsx src/server_mqtt.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "tsx": "^4.20.4",
+    "typescript": "^5.9.2"
+  }
+}
