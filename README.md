@@ -22,7 +22,3 @@ Antes de começar, verifique se você atendeu aos seguintes requisitos:
 Para instalar, siga estas etapas:
 
 
-
-## 📝 Licença
-
-Esse projeto está sob licença. Veja o arquivo [LICENÇA](LICENSE.md) para mais detalhes.
