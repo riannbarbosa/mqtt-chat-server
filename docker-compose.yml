@@ -7,13 +7,23 @@ services:
     container_name: mosquitto
     ports:
       - "1883:1883" #default mqtt port
+      - "9001:9001" #websockets port
     volumes:
-      - ./config:/mosquitto/config:rw
-      - ./data:/mosquitto/data:rw
-      - ./log:/mosquitto/log:rw
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
     restart: always
 
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      - mosquitto
+    stdin_open: true
+    tty: true
+    entrypoint: ["yarn", "start"]
+
 volumes:
-  config:
-  data:
-  log:
+ mosquitto_data:
+ mosquitto_log:
