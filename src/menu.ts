@@ -1,11 +1,8 @@
-import {question} from "./utils";
-import {MQTTClient} from "./MQTTCli";
+import { question } from "./utils";
+import { MQTTClient } from "./MQTTCli";
 
-export async  function showMenu(client: MQTTClient){ 
-
+export async function showMenu(client: MQTTClient) {
   while(true){
-
-    
     console.log("Bem-vindo ao MQTT Chat Server!");
     console.log(`
         === MQTT Chat ===
@@ -15,9 +12,10 @@ export async  function showMenu(client: MQTTClient){
         4. Solicitar conversa
         5. Informações de debug
         6. Conversas ativas
-        7. Sair
+        7. Solicitações de conversa pendentes
+        8. Sair
         `);
-    const option = await question("Selecione uma opção: ");
+       const option = await question("Selecione uma opção: ");
 
        switch(option) {
             case '1':
@@ -36,9 +34,12 @@ export async  function showMenu(client: MQTTClient){
                 client.showDebugInfo();
                 break;
             case '6':
-                // await handleActiveConversations(client);
+                await client.handleActiveConversations();
                 break;
             case '7':
+                  await client.handlePendingConversationRequests();
+                break;
+            case '8':
                 console.log('Saindo...');
                 client.end();
                 process.exit(0);

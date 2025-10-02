@@ -7,6 +7,10 @@ async function main(){
 
    console.log('=== MQTT Chat Client ===');
    const userId = await question("Insira o seu ID de usuário: ");
+   if(!userId){
+      console.log("ID de usuário inválido. Encerrando.");
+      process.exit(1);
+   }
    const brokerUrlDefault = "mosquitto";
    const PORT = "9001";
 

@@ -1,6 +1,7 @@
 global.WebSocket = require('ws');
 import paho, { Client } from "paho-mqtt";
 import { question } from "./utils";
+import { request } from "https";
 
 export interface User {
     id: string;
@@ -128,7 +129,6 @@ export class MQTTClient {
     }
 
     onMessageArrived(message: any) {
-        console.log(`Mensagem recebida no tópico ${message.destinationName}: ${message.payloadString}`);    
         const topic = message.destinationName;
         const payload = message.payloadString;
         
@@ -142,8 +142,11 @@ export class MQTTClient {
                 this.handleGroupUpdate(data);   
             }
             else if(topic.endsWith('_Control')){
-                this.handleControlMessage(data);
+                this.handleControlMessage(topic, data);
             }
+            else if(this.activeConversations.has(topic)){
+            this.handleConversationMessage(topic, data);
+         }
             else{
                 console.log("Tópico desconhecido:", topic);
             }
@@ -151,7 +154,23 @@ export class MQTTClient {
             console.error("Erro ao processar mensagem:", error);
         }
     }
-     private handleUserStatusUpdate(data: any) {
+
+    private handleConversationMessage(topic: string, data: any) {
+        if(data.from === this.userId){
+            return;
+        }
+
+        const messages = this.activeConversations.get(topic) || [];
+        const formattedMessage = `${data.from}: ${data.message}`;
+        messages.push(formattedMessage);
+        this.activeConversations.set(topic, messages);
+        
+        // Mostrar a mensagem em tempo real se estiver na conversa
+        console.log(`\n💬 [${topic}] ${formattedMessage}`);
+        process.stdout.write("> "); // Reexibe o prompt
+    }
+
+    private handleUserStatusUpdate(data: any) {
         if (data.userId === this.userId) {
             return;
         }
@@ -178,49 +197,140 @@ export class MQTTClient {
         } else if (data.type === "conversation_response") {
             this.handleConversationResponse(data);
         } else if (data.type === "group_invitation") {
-            this.handleGroupInvitation(data);
+            // this.handleGroupInvitation(data);
         }
     }
 
     private handleConversationRequest(data: any) {
-        console.log(`Nova solicitação de conversa de ${data.from}. Tópico: ${data.topic}`);
+        console.log(`\n=== NOVA SOLICITAÇÃO DE CONVERSA ===`);
+        console.log(`Usuário: ${data.from}`);
+        console.log(`Tópico proposto: ${data.proposedTopic}`);
+        console.log(`====================================\n`);
 
         this.conversationRequests.push({
             from: data.from,
             to: this.userId,
             timestamp: data.timestamp,
             status: 'pendente',
-            topic: data.proposedTotopic
+            topic: data.proposedTopic
         });
-        this.promptConversationRequestResponse(this.conversationRequests[this.conversationRequests.length - 1]);
+        console.log(`💬 Nova solicitação de conversa de ${data.from}`);
+        console.log(`Use a opção 7. Ver solicitações pendentes' no menu para responder.\n`);
+
+        process.stdout.write("Selecione uma opção: ");
     }
 
-    private async promptConversationRequestResponse(request: ConversationRequest) {
-        const response = await question(`Aceitar solicitação de conversa de ${request.from}? (s/n): `);
+    async handlePendingConversationRequests() {
+        const pendingRequests = this.conversationRequests.filter(req => req.to === this.userId && req.status === 'pendente');
+        if(pendingRequests.length === 0){
+            console.log("Nenhuma solicitação de conversa pendente.");
+            return;
+        }
+
+        if(pendingRequests.length === 0){
+            console.log("Nenhuma solicitação de conversa pendente.");
+            return;
+        }
+
+        console.log("\n===  SOLICITAÇÕES PENDENTES ===");
+        pendingRequests.forEach((req, index) => {   
+            console.log(`${index + 1}. De: ${req.from} | Tópico: ${req.topic} | Enviada em: ${new Date(req.timestamp).toLocaleString()}`);
+        }
+        );
+        const choice = await question("Selecione uma solicitação para responder (0 para voltar): ");    
+        const choiceNum = parseInt(choice);
+        
+        if(choiceNum > 0 && choiceNum <= pendingRequests.length){
+            const selectedRequest = pendingRequests[choiceNum - 1];
+            await this.promptConversationRequestResponse(selectedRequest.from, selectedRequest.topic!);
+        }
+
+        
+    }
+
+    private async promptConversationRequestResponse(from: string, topic: string) {
+        const response = await question(`Aceitar solicitação de conversa de ${from}? (s/n): `);
         if (response.toLowerCase() === 's') {
-            this.acceptCOnversationRequest(request);
-            console.log(`Você aceitou a solicitação de conversa de ${request.from}. Iniciando conversa no tópico ${request.topic}`);
+            this.acceptConversationRequest(from, topic);
+            console.log(`Você aceitou a solicitação de conversa de ${from}. Iniciando conversa no tópico ${topic}`);
         }else {
-            this.rejectConversationRequest(request);
-            console.log(`Você rejeitou a solicitação de conversa de ${request.from}.`);
+            this.rejectConversationRequest(from);
+            console.log(`Você rejeitou a solicitação de conversa de ${from}.`);
         }
 
     }
 
-    private acceptCOnversationRequest(request: ConversationRequest) {
-        request.status = 'aceito';
+    private acceptConversationRequest(from: string, topic: string) {
+       const newTopic = `${from}_${this.userId}_${Date.now()}`;
+    this.subscribe(newTopic);
+
+
+        const request = this.conversationRequests.find(req => req.from === from && req.status === 'pendente');
+        if (request) {
+            request.status = 'aceito';
+            request.topic = newTopic;
+
+            this.activeConversations.set(newTopic, []);
+
+            console.log(`Iniciando conversa com ${from} no tópico ${newTopic}`);
+
+
+            this.publish(`${from}_Control`, JSON.stringify({
+                type: 'conversation_response',
+                from: this.userId,
+                to: from,
+                topic: newTopic,
+                timestamp: Date.now(),
+                status: 'aceito',
+                response: 'accepted'
+            }));
+        }
     }
 
-     private rejectConversationRequest(request: ConversationRequest) {
-        request.status = 'rejeitado';
+     private rejectConversationRequest(from: string) {
+        const request = this.conversationRequests.find(req => req.from === from && req.status === 'pendente');
+        if (request) {
+            request.status = 'rejeitado';
+            
+            this.publish(`${from}_Control`, JSON.stringify({
+                type: 'conversation_response',
+                from: this.userId,
+                to: from,
+                timestamp: Date.now(),
+                status: 'rejeitado',
+                response: 'rejected'
+            }));
+
+            console.log(`Solicitação de conversa de ${from} rejeitada.`);
+            
+        }
     }
 
 
      private handleConversationResponse(data: any) {
+        const request = this.conversationRequests.find(req => req.from === this.userId && req.to === data.from && req.status === 'pendente');   
+        if (request && data.status === 'aceito') {
+            request.status = 'aceito';
+            request.topic = data.topic;
+
+            this.activeConversations.set(data.topic, []);
+            this.subscribe(data.topic);
+
+            console.log(`Sua solicitação de conversa foi aceita por ${data.from}. Iniciando conversa no tópico ${data.topic}`);
+        }
+        else{
+            request!.status = 'rejeitado';  
+            console.log(`Sua solicitação de conversa foi rejeitada por ${data.from}.`);
+        }
     }
 
-     private handleGroupInvitation(data: any) {
-    }
+    //  private handleGroupInvitation(data: any) {
+
+    //     console.log(`Convite para grupo recebido de ${data.from} para o grupo ${data.groupName}`);
+    //     // Implementation for handling group invitations
+
+        
+    // }
 
     async listUsers() {
         console.log("\n=== Usuários e Status ===");
@@ -242,8 +352,6 @@ export class MQTTClient {
         // Implementation for listing groups
     }
     async requestConversation() {
-        // request a convesartion here
-
         await this.listUsers();
         const targetUserId = await question("Insira o ID do usuário com quem deseja conversar: ");
 
@@ -258,24 +366,32 @@ export class MQTTClient {
             return;
         }
 
+        this.publish(`${targetUserId}_Control`, JSON.stringify({
+        type: 'conversation_request',
+        from: this.userId,
+        to: targetUserId,
+        // ❌ Remover: proposedTopic: topic,
+        timestamp: Date.now()
+      }));
+
         // Assina o tópico de conversa
         // assina o topico de nome X_Y_timestamp
-        const topic = `${this.userId}_${targetUserId}_${Date.now()}`;
+        // const topic = `${this.userId}_${targetUserId}_${Date.now()}`;
 
-        this.publish(`${targetUserId}_Control`, JSON.stringify({
-            type: 'conversation_request',
-            from: this.userId,
-            to: targetUserId,
-            topic: topic,
-            timestamp: Date.now()
-        }));
+        // this.publish(`${targetUserId}_Control`, JSON.stringify({
+        //     type: 'conversation_request',
+        //     from: this.userId,
+        //     to: targetUserId,
+        //     proposedTopic: topic,
+        //     timestamp: Date.now()
+        // }));
 
         this.conversationRequests.push({
             from: this.userId,
             to: targetUserId,
             timestamp: Date.now(),
             status: 'pendente',
-            topic: topic
+            // topic: topic
         });
         
         console.log(`Solicitação de conversa enviada para ${targetUserId}. Aguardando resposta...`);
@@ -296,9 +412,58 @@ Conectado: ${this.isConnected() ? 'Sim' : 'Não'}
             
             `)
     }
-    handleActiveConversations() {
+   async handleActiveConversations() {
         // Implementation for handling active conversations
+        console.log('--- Conversas Ativas ---');
+        if(this.activeConversations.size === 0){
+            console.log("Nenhuma conversa ativa no momento.");
+            return;
+        }
+        let i = 1;
+        const topics: string[] = [];
+          this.activeConversations.forEach((messages, topic) => {
+            const participants = topic.split('_').slice(0, 2);
+            const otherUser = participants.find(p => p !== this.userId) || 'Unknown';
+            
+            console.log(`${i}. Conversa com ${otherUser} (${messages.length} mensagens)`);
+            topics.push(topic);
+            i++;
+        });
+          console.log("=======================\n");
+        
+        const choice = await question("Selecione uma conversa (0 para voltar): ");
+        const choiceNum = parseInt(choice);
+        
+        if (choiceNum > 0 && choiceNum <= topics.length) {
+            await this.enterConversation(topics[choiceNum - 1]);
+        }
     }
+
+    private async enterConversation(topic: string) {
+      console.log(`\n=== Conversa === [Digite '/sair' para voltar]`);
+      
+      const messages  = this.activeConversations.get(topic) || [];
+
+      messages.forEach(msg => console.log(msg));
+
+      while (true) {
+        const message = await question("> ");
+        if (message === '/sair') {
+            console.log("Saindo da conversa...");
+            break;
+        }
+
+         this.publish(topic, JSON.stringify({
+                from: this.userId,
+                message: message,
+                timestamp: Date.now()
+            }));
+            const updatedMessages = this.activeConversations.get(topic) || [];  
+             updatedMessages.push(`${this.userId}: ${message}`);
+             this.activeConversations.set(topic, updatedMessages);
+        }
+    }
+        
 
 
     publish(topic: string, message: string) {
