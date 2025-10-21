@@ -6,7 +6,6 @@ services:
     image: eclipse-mosquitto:2.0
     container_name: mosquitto
     ports:
-      - "1883:1883" #default mqtt port
       - "9001:9001" #websockets port
     volumes:
       - mosquitto_data:/mosquitto/data

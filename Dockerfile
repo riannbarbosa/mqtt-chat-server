@@ -12,7 +12,8 @@ COPY package*.json ./
 
 RUN npm install
 
-COPY src/ ./src/
+COPY src ./src/
+COPY mosquitto.conf ./
 
 RUN useradd -m -u 1001 mqttuser && chown -R mqttuser:mqttuser /app
 USER mqttuser
