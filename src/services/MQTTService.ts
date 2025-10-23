@@ -45,6 +45,7 @@ export class MQTTService {
     return new Promise<void>((resolve, reject) => {
       const connectionOptions = {
         cleanSession: false,
+        timeout: 30,
         onSuccess: () => {
           console.log('Conectado ao broker MQTT');
           this.subscribeControlTopics();
@@ -66,7 +67,7 @@ export class MQTTService {
       status: 'online',
       timestamp: Date.now(),
     });
-    this.publish('USERS', message);
+    this.publishRetained('USERS', message);
   }
 
   private publishOfflineStatus() {
@@ -75,7 +76,7 @@ export class MQTTService {
       status: 'offline',
       timestamp: Date.now(),
     });
-    this.publish('USERS', message);
+    this.publishRetained('USERS', message);
   }
 
   private subscribeControlTopics() {
