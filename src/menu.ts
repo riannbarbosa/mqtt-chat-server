@@ -1,5 +1,5 @@
 import { question } from './utils';
-import { MQTTService } from './services/MQTTCli';
+import { MQTTService } from './services/MQTTService';
 
 export async function showMenu(client: MQTTService) {
   while (true) {

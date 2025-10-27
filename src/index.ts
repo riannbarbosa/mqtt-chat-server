@@ -10,18 +10,20 @@ async function main() {
     console.log('ID de usuário inválido. Encerrando.');
     process.exit(1);
   }
+
+    const userName = await question('Insira o seu nome de usuário: ');
+  if (!userName) {
+    console.log('Nome de usuário inválido. Encerrando.');
+    process.exit(1);
+  }
   const brokerUrlDefault = 'mosquitto';
   const PORT = '9001';
 
-  console.log(`Usuário: ${userId}, Broker: ${brokerUrlDefault}, Porta: ${PORT}`);
 
-  const client = new MQTTService(userId, brokerUrlDefault, PORT);
+  const client = new MQTTService(userId, userName,brokerUrlDefault, PORT);
 
   try {
     await client.connect();
-
-    console.log(`Conectando ao broker MQTT em ${brokerUrlDefault}:${PORT}...`);
-
     await showMenu(client);
   } catch (error) {
     console.error('Error:', error);

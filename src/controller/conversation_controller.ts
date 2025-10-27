@@ -7,6 +7,7 @@ export class ConversationController {
   private users: Map<string, User>;
 
   private activeConversations: Map<string, string[]>; // Map<userId, topic>
+  private currentConversationTopic: string | null = null;
   private pendingRequests: ConversationRequest[];
 
   constructor(mqttService: MQTTService, users: Map<string, User>) {
@@ -36,10 +37,10 @@ export class ConversationController {
     }
 
     onlineUsers.forEach(([userId, user]) => {
-      console.log(`${userId} - Status: ${user.status}`);
+      console.log(`${user.name} (ID: ${userId}) - Status: ${user.status}`);
     });
 
-    const userId = await question('Insira o ID do usuário com quem deseja] onversar: ');
+    const userId = await question('Insira o ID do usuário com quem deseja conversar: ');
     return this.users.has(userId) ? userId : null;
   }
 
@@ -203,9 +204,14 @@ export class ConversationController {
 
     this.activeConversations.forEach((messages, topic) => {
       const participants = topic.split('_').slice(0, 2);
-      const otherUser = participants.find(p => p !== this.mqttService.getUserId()) || 'Unknown';
+      const otherUserId = participants.find(p => p !== this.mqttService.getUserId()) || 'Unknown';
+      const otherUser = this.users.get(otherUserId);
+      const displayName = otherUser ? `${otherUser.name} (${otherUserId})` : otherUserId;
+      const lastMsg = messages.length > 0 ? messages[messages.length - 1] : 'Sem mensagens';
+      const preview = lastMsg.length > 50 ? lastMsg.substring(0, 47) + '...' : lastMsg;
 
-      console.log(`${i}. Conversa com ${otherUser} (${messages.length} mensagens)`);
+      console.log(`${i}. Conversa com ${displayName}`);
+      console.log(`   ${messages.length} mensagens | Última: ${preview}`);
       topics.push(topic);
       i++;
     });
@@ -220,6 +226,7 @@ export class ConversationController {
   }
 
   private async enterConversation(topic: string) {
+    this.currentConversationTopic = topic;
     console.log(`\n=== Conversa === [Digite '/sair' para voltar]`);
 
     const messages = this.activeConversations.get(topic) || [];
@@ -229,6 +236,7 @@ export class ConversationController {
       const message = await question('> ');
       if (message === '/sair') {
         console.log('Saindo da conversa...');
+        this.currentConversationTopic = null;
         break;
       }
 
@@ -272,8 +280,20 @@ export class ConversationController {
     messages.push(formattedMessage);
     this.activeConversations.set(topic, messages);
 
-    console.log(`\n💬 [${topic}] ${formattedMessage}`);
-    process.stdout.write('> ');
+    const participants = topic.split('_').slice(0, 2);
+    const otherUserId = participants.find(p => p !== this.mqttService.getUserId()) || data.from;
+    const otherUser = participants.find(p => p !== this.mqttService.getUserId()) || data.from;
+    const displayName = otherUser ? otherUser.name : otherUserId;
+
+    if (this.currentConversationTopic === topic) {
+      // Inside the conversation - just show the message inline
+      process.stdout.write('> ');
+    } else {
+      // Outside - show notification
+      console.log(`\n💬 Nova mensagem de ${displayName}: ${data.message}`);
+      console.log(`   (Use opção 6 para ver conversas ativas)`);
+      process.stdout.write('Selecione uma opção: ');
+    }
   }
 
   handleControlMessage(data: any) {
@@ -281,6 +301,18 @@ export class ConversationController {
       this.handleConversationRequest(data);
     } else if (data.type === 'conversation_response') {
       this.handleConversationResponse(data);
+    }
+  }
+
+  restoreConversation(topic: string) {
+    if (!this.activeConversations.has(topic)) {
+      this.activeConversations.set(topic, []);
+      console.log(`✅ Conversa restaurada no tópico: ${topic}`);
+
+      // Notify the user
+      const participants = topic.split('_').slice(0, 2);
+      const otherUser = participants.find(p => p !== this.mqttService.getUserId()) || 'Unknown';
+      console.log(`💬 Você tem uma conversa ativa com ${otherUser}`);
     }
   }
 

@@ -24,11 +24,12 @@ export interface GroupInvitation {
   groupName: string;
   from: string;
   to: string;
+  topic?: string;
   timestamp: number;
 }
 
 export interface GroupJoinRequest {
-  type: 'group_request';
+  type: 'group_join_request';
   groupName: string;
   from: string;
   to: string;
@@ -36,9 +37,28 @@ export interface GroupJoinRequest {
 }
 
 export interface GroupMessage {
-  type: 'group_request';
+  type: 'group_message';
   groupName: string;
   from: string;
   message: string;
+  timestamp: number;
+}
+
+export interface GroupJoinResponse {
+  type: 'group_join_response';
+  groupName: string;
+  from: string;
+  to: string;
+  status: 'aceito' | 'rejeitado';
+  topic?: string;
+  timestamp: number;
+}
+
+export interface GroupUpdate {
+  type: 'group_created' | 'group_updated';
+  name: string;
+  leader: string;
+  members: string[];
+  topic: string;
   timestamp: number;
 }
