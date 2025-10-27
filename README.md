@@ -20,6 +20,11 @@ Este projeto demonstra a comunicação de um chat _one-to-one_ e comunicação e
 
 ## 🧞 Tecnologias Utilizadas 
 
+- [Docker](https://www.docker.com/)
+- [Docker Compose](https://docs.docker.com/compose/)
+- [MQTT](https://mqtt.org/) com types para o typescript ([types/paho-mqtt](https://classic.yarnpkg.com/en/package/@types/paho-mqtt))
+- [Mosquitto](https://mosquitto.org/)
+- [Node.js](https://nodejs.org/en)
 
 
 ## 🚀 Instalando 
@@ -39,4 +44,6 @@ $ make start
 # Encerra a execução do projeto/servidor
 $ make nuke
 ```
+
+PS: Caso de algum erro de um ``yarn install`` e um ```nvm use``` para a versão do node utilizando o [nvm](https://github.com/nvm-sh/nvm).
 

@@ -14,8 +14,5 @@ build:
 nuke:
 	docker compose down
 
-start-client:
-	docker compose run client
-
-start-server:
+start:
 	docker compose run server

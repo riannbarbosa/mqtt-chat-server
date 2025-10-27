@@ -1,22 +1,20 @@
-FROM debian:latest
+FROM node:20-slim
 
-RUN apt-get update && apt-get install -y mosquitto mosquitto-clients curl && \
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
-    apt-get install -y nodejs && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && \
+    apt-get install -y mosquitto-clients && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
-
-COPY package*.json /app/
 
 WORKDIR /app
 
+COPY package*.json ./
 
 RUN npm install
 
-COPY client_mqtt /app/src/client_mqtt
-COPY server_mqtt /app/src/server_mqtt
+COPY . .
 
-
-EXPOSE 1883 
-
-CMD mosquitto -c /mosquitto/config/mosquitto.conf
+RUN useradd -m -u 1001 mqttuser && chown -R mqttuser:mqttuser /app
+USER mqttuser
+# Default command - run the compiled client
+CMD ["npm", "start"];  
