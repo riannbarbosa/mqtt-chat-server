@@ -1,6 +1,7 @@
 import { MQTTService } from '../services/MQTTService';
 import { ConversationRequest, User } from '../interfaces/interface_config';
 import { question } from '../utils';
+import moment from 'moment';
 
 export class ConversationController {
   private mqttService: MQTTService;
@@ -37,7 +38,8 @@ export class ConversationController {
     }
 
     onlineUsers.forEach(([userId, user]) => {
-      console.log(`${user.name} (ID: ${userId}) - Status: ${user.status}`);
+      const activityInfo = user.lastActivity ? ` | Ativo: ${user.lastActivity}` : ' | Ativo: Agora';
+      console.log(`${user.name} - Status: ${user.status}${activityInfo}`);
     });
 
     const userId = await question('Insira o ID do usuário com quem deseja conversar: ');
@@ -227,18 +229,33 @@ export class ConversationController {
 
   private async enterConversation(topic: string) {
     this.currentConversationTopic = topic;
+
+    console.clear();
     console.log(`\n=== Conversa === [Digite '/sair' para voltar]`);
 
     const messages = this.activeConversations.get(topic) || [];
-    messages.forEach(msg => console.log(msg));
+    if (messages.length > 0) {
+      messages.forEach(msg => console.log(msg));
+    } else {
+      console.log('--- Início da conversa ---');
+    }
+    console.log('');
 
     while (true) {
       const message = await question('> ');
+
+      process.stdout.write('\r\x1b[K\x1b[1A\r\x1b[K');
       if (message === '/sair') {
         console.log('Saindo da conversa...');
         this.currentConversationTopic = null;
         break;
       }
+
+      if (message.trim() === '') continue;
+
+      const timestamp = moment().utcOffset(-180).format('HH:mm');
+
+      console.log(`[${timestamp}] [Você]: ${message}`);
 
       this.mqttService.publish(
         topic,
@@ -268,30 +285,37 @@ export class ConversationController {
     });
 
     console.log(`💬 Nova solicitação de conversa de ${data.from}`);
-    console.log(`Use a opção '7. Ver solicitações pendentes' no menu para responder.\n`);
+    console.log(`Use a opção "4". Ver solicitações pendentes' no menu para responder.\n`);
     process.stdout.write('Selecione uma opção: ');
   }
 
   handleMessage(topic: string, data: any) {
-    if (data.from === this.mqttService.getUserId()) return;
+    const isMe = data.from === this.mqttService.getUserId();
 
     const messages = this.activeConversations.get(topic) || [];
-    const formattedMessage = `${data.from}: ${data.message}`;
+    const timestamp = moment().utcOffset(-180).format('HH:mm');
+
+    let displayName = data.from;
+    const getUserFromMap = this.users.get(data.from);
+    if (getUserFromMap) {
+      displayName = getUserFromMap.name;
+    }
+
+    const formattedMessage = `[${timestamp}] ${data.from}: ${data.message}`;
     messages.push(formattedMessage);
     this.activeConversations.set(topic, messages);
 
-    const participants = topic.split('_').slice(0, 2);
-    const otherUserId = participants.find(p => p !== this.mqttService.getUserId()) || data.from;
-    const otherUser = participants.find(p => p !== this.mqttService.getUserId()) || data.from;
-    const displayName = otherUser ? otherUser.name : otherUserId;
+    if (isMe) return;
 
     if (this.currentConversationTopic === topic) {
-      // Inside the conversation - just show the message inline
+      process.stdout.write('\r\x1b[K');
+      console.log(`[${timestamp}] ${displayName}: ${data.message}`);
       process.stdout.write('> ');
     } else {
       // Outside - show notification
+      process.stdout.write('\r\x1b[K');
       console.log(`\n💬 Nova mensagem de ${displayName}: ${data.message}`);
-      console.log(`   (Use opção 6 para ver conversas ativas)`);
+      console.log(`   (Use opção 3 para ver conversas ativas)`);
       process.stdout.write('Selecione uma opção: ');
     }
   }
