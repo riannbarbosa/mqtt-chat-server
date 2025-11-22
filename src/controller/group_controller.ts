@@ -43,9 +43,9 @@ export class GroupController {
     this.pendingJoinRequests = new Map();
   }
 
-  private getUserColor(username: string){
+  private getUserColor(username: string) {
     let hash = 0;
-    for(let i = 0; i < username.length; i++){
+    for (let i = 0; i < username.length; i++) {
       hash = username.charCodeAt(i) + ((hash << 5) - hash);
     }
     const index = Math.abs(hash) % COLORS.length;
@@ -369,7 +369,6 @@ export class GroupController {
     if (!group || group.leaderId !== this.mqttService.getUserId()) {
       return;
     }
-
     const requests = this.pendingJoinRequests.get(data.groupName) || [];
 
     if (!requests.some(req => req.from === data.from)) {
@@ -482,17 +481,19 @@ export class GroupController {
     const messages = this.groupMessages.get(group.topic) || [];
     if (messages.length > 0) {
       messages.forEach(msg => {
-
         const match = msg.match(/\[(.*?)\] \[(.*?)\]: (.*)/);
         if (match) {
-              const [_, time, name, text] = match;
-              const color = this.getUserColor(name);
-              const displayName = name === this.mqttService.getUserId() ? `${BOLD}\x1b[32mVocê${RESET}` : `${color}${name}${RESET}`;
-              console.log(`[${time}] ${displayName}: ${text}`);
-          } else {
-              console.log(msg);
-          }
-    });
+          const [_, time, name, text] = match;
+          const color = this.getUserColor(name);
+          const displayName =
+            name === this.mqttService.getUserId()
+              ? `${BOLD}\x1b[32mVocê${RESET}`
+              : `${color}${name}${RESET}`;
+          console.log(`[${time}] ${displayName}: ${text}`);
+        } else {
+          console.log(msg);
+        }
+      });
     } else {
       console.log('--- Início da conversa ---');
     }
