@@ -3,10 +3,9 @@ import paho, { Client } from 'paho-mqtt';
 import { Group, User, ConversationRequest } from '../interfaces/interface_config';
 import { ConversationController } from '../controller/conversation_controller';
 import { GroupController } from '../controller/group_controller';
-
+import moment from 'moment';
 export class MQTTService {
   private client: Client;
-  private userName: string;
   private userId: string;
   private brokerUrl: string;
   private port: string;
@@ -21,11 +20,10 @@ export class MQTTService {
   private offlineTimers: Map<string, NodeJS.Timeout> = new Map();
 
   private userIdConflict: boolean = false;
-    private verificationComplete: boolean = false;
+  private verificationComplete: boolean = false;
 
-  constructor(userId: string, userName: string ,brokerUrl: string = 'localhost', port: string = '1883') {
+  constructor(userId: string, brokerUrl: string = 'localhost', port: string = '1883') {
     this.userId = userId;
-    this.userName = userName;
     this.brokerUrl = brokerUrl;
     this.port = port;
     this.users = new Map();
@@ -59,6 +57,7 @@ export class MQTTService {
             this.publishOnlineStatus();
             this.requestCurrentUserStatuses();
             this.restoreActiveConversations();
+            this.groupController.initializeGroupSync();
             resolve();
           }, 500);
         },
@@ -71,11 +70,11 @@ export class MQTTService {
     });
   }
 
-   async verifyUserIdAvailability(): Promise<boolean> {
-    return new Promise<boolean>((resolve) => {
+  async verifyUserIdAvailability(): Promise<boolean> {
+    return new Promise<boolean>(resolve => {
       setTimeout(() => {
         const existingUser = this.users.get(this.userId);
-        
+
         if (existingUser && existingUser.status === 'online') {
           this.userIdConflict = true;
           resolve(false);
@@ -84,7 +83,7 @@ export class MQTTService {
           this.verificationComplete = true;
           resolve(true);
         }
-      }, 2000); 
+      }, 2000);
     });
   }
 
@@ -97,7 +96,6 @@ export class MQTTService {
         timestamp: Date.now(),
       })
     );
-    console.log('🔄 Solicitando restauração de conversas ativas...');
   }
 
   private requestCurrentUserStatuses() {
@@ -109,36 +107,47 @@ export class MQTTService {
         timestamp: Date.now(),
       })
     );
-
-    console.log('📨 Solicitando status de usuários online...');
   }
 
   private publishOnlineStatus() {
+    if (!this.isConnected()) {
+      console.log('⚠️  Não conectado, não é possível publicar status online');
+      return;
+    }
+
     const message = JSON.stringify({
       type: 'status_update',
       userId: this.userId,
-      userName: this.userName,
       status: 'online',
       timestamp: Date.now(),
+      lastActivity: moment().utcOffset(-180).format('DD/MM/YYYY HH:mm:ss'),
     });
-    this.publishRetained('USERS', message);
+    try {
+      this.publishRetained(`USERS/${this.userId}`, message);
+    } catch (error) {
+      console.error('❌ Erro ao publicar status online:', error);
+    }
   }
 
   private publishOfflineStatus() {
+    if (!this.isConnected()) {
+      return;
+    }
+
     const message = JSON.stringify({
       type: 'status_update',
       userId: this.userId,
-      userName: this.userName,
       status: 'offline',
       timestamp: Date.now(),
+      lastActivity: moment().utcOffset(-180).format('DD/MM/YYYY HH:mm:ss'),
     });
-    this.publishRetained('USERS', message);
+    this.publishRetained(`USERS/${this.userId}`, message);
   }
 
   private subscribeControlTopics() {
     this.subscribe(`${this.userId}_Control`);
 
-    this.subscribe(`USERS`);
+    this.subscribe(`USERS/+`);
     this.subscribe(`GROUPS`);
   }
 
@@ -155,15 +164,19 @@ export class MQTTService {
     console.log('Connection lost:', responseObject.errorMessage);
   }
   async disconnect(): Promise<void> {
-    if (this.verificationComplete && !this.userIdConflict) {
-      this.publishOfflineStatus();
-      await new Promise(resolve => setTimeout(resolve, 300));
-    }
     this.offlineTimers.forEach((timer, userId) => {
       clearTimeout(timer);
+      console.log(`🧹 Timer limpo para ${userId}`);
     });
-    await new Promise(resolve => setTimeout(resolve, 300));
-    this.client.disconnect();
+    this.offlineTimers.clear();
+
+    if (this.isConnected()) {
+      this.publishOfflineStatus();
+      // Dar tempo para a mensagem ser enviada
+      await new Promise(resolve => setTimeout(resolve, 500));
+      this.client.disconnect();
+    }
+
     console.log('Desconectado do broker MQTT');
   }
   isConnected(): boolean {
@@ -171,10 +184,14 @@ export class MQTTService {
   }
 
   async end(): Promise<void> {
+    if (this.isConnected()) {
+      this.publishOfflineStatus();
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
     await this.disconnect();
-    setTimeout(() => {
-      process.exit(0);
-    }, 500);
+
+    console.log('Encerrando aplicação...');
+    process.exit(0);
   }
 
   onMessageArrived(message: any) {
@@ -184,7 +201,7 @@ export class MQTTService {
     try {
       const data = JSON.parse(payload);
 
-      if (topic === 'USERS') {
+      if (topic.startsWith('USERS/')) {
         this.handleUserStatusUpdate(data);
       } else if (topic === 'GROUPS') {
         this.handleGroupUpdate(data);
@@ -225,76 +242,148 @@ export class MQTTService {
     } else if (
       data.type === 'group_invitation' ||
       data.type === 'group_join_request' ||
-      data.type === 'group_join_response'
+      data.type === 'group_join_response' ||
+      data.type === 'groups_sync_request'
     ) {
       this.groupController.handleControlMessage(data);
     }
   }
 
   private handleUserStatusUpdate(data: any) {
-    if (data.type === 'status_request' && data.requester !== this.userId) {
-      this.publishOnlineStatus();
+    if (!data.type || !data.userId) {
       return;
     }
+
+    // if (data.type === 'status_request' && data.requester !== this.userId) {
+    //   console.log(`📨 Recebida solicitação de status de ${data.requester}`);
+    //   this.publishOnlineStatus();
+    //   return;
+    // }
 
     if (data.userId === this.userId) {
       return;
     }
+    const previousStatus = this.users.get(data.userId)?.status;
 
-    if (!data.userId) {
-      return;
+    const lastActivity =
+      data.lastActivity || moment().utcOffset(-180).format('DD/MM/YYYY HH:mm:ss');
+
+    this.users.set(data.userId, {
+      id: data.userId,
+      name: data.userId,
+      status: data.status,
+      lastActivity,
+    });
+
+    if (previousStatus !== data.status) {
+      const userName = data.userId;
+      if (data.status === 'online') {
+        console.log(`\n✅ ${userName} está online`);
+        process.stdout.write('Selecione uma opção: ');
+      } else if (data.status === 'offline') {
+        console.log(`\n❌ ${userName} está offline`);
+        process.stdout.write('Selecione uma opção: ');
+      }
     }
 
     const existingTimer = this.offlineTimers.get(data.userId);
-    if (existingTimer) {
-      clearTimeout(existingTimer);
-      this.offlineTimers.delete(data.userId);
-      console.log(`⏰ Timer de remoção cancelado para ${data.userName || data.userId}`);
-    }
-    this.users.set(data.userId, {
-      id: data.userId,
-      name: data.userName,
-      status: data.status,
-    });
 
-    if (data.status === 'offline') {
-      const timer = setTimeout(() => {
-        this.users.delete(data.userId);
+    if (data.status === 'online') {
+      if (existingTimer) {
+        clearTimeout(existingTimer);
         this.offlineTimers.delete(data.userId);
-        console.log(`🗑️  Usuário [${data.userName}] - ${data.userId} removido da lista (offline há 15s)`);
-      }, 15000);
+      }
+    } else if (data.status === 'offline') {
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+      }
+
+      const timer = setTimeout(() => {
+        const currentUser = this.users.get(data.userId);
+        if (currentUser && currentUser.status === 'offline') {
+          this.users.delete(data.userId);
+          this.offlineTimers.delete(data.userId);
+          console.log(`🗑️ ${data.userId} removido da lista (offline)`);
+        }
+      }, 3600000);
+
       this.offlineTimers.set(data.userId, timer);
     }
   }
 
   private handleGroupUpdate(data: any) {
+    this.groupController.handleGroupUpdate(data);
     this.groups.set(data.name, data);
   }
 
   async listUsers() {
     console.log('\n=== Usuários e Status ===');
-    if (this.users.size === 0) {
+
+    // this.requestCurrentUserStatuses();
+
+    await new Promise(resolve => setTimeout(resolve, 3000));
+
+    const onlineUsers = Array.from(this.users.entries()).filter(
+      ([userId, user]) => user.status === 'online' && userId !== this.userId
+    );
+
+    if (onlineUsers.length === 0) {
       console.log('Nenhum outro usuário online no momento.');
-      console.log('📨 Solicitando atualizações de status...');
 
       this.requestCurrentUserStatuses();
 
       await new Promise(resolve => setTimeout(resolve, 2000));
 
-      if (this.users.size === 0) {
+      const updatedOnlineUsers = Array.from(this.users.entries()).filter(
+        ([userId, user]) => user.status === 'online' && userId !== this.userId
+      );
+
+      const updatedOfflineUsers = Array.from(this.users.entries()).filter(
+        ([userId, user]) => user.status === 'offline' && userId !== this.userId
+      );
+
+      if (updatedOnlineUsers.length === 0 && updatedOfflineUsers.length === 0) {
         console.log('Ainda nenhum usuário online.');
+      } else {
+        if (updatedOnlineUsers.length > 0) {
+          console.log('\n--- Usuários Online ---');
+
+          updatedOnlineUsers.forEach(([userId, user]) => {
+            const activityInfo = user.lastActivity
+              ? ` | Última atividade: ${user.lastActivity}`
+              : ' | Atividade: Desconhecida';
+            console.log(`🟢 ${user.name} (ID: ${userId}) ${activityInfo}`);
+          });
+        }
+        if (updatedOfflineUsers.length > 0) {
+          console.log('\n--- Usuários Offline ---');
+          updatedOfflineUsers.forEach(([userId, user]) => {
+            const activityInfo = user.lastActivity
+              ? ` | Última atividade: ${user.lastActivity}`
+              : ' | Atividade: Desconhecida';
+            console.log(`🔴 ${user.name} ${activityInfo}`);
+          });
+        }
+      }
+    } else {
+      console.log('\n--- Usuários Online ---');
+      onlineUsers.forEach(([userId, user]) => {
+        console.log(`🟢 ${user.name}  ${user.lastActivity}`);
+      });
+
+      const offlineUsers = Array.from(this.users.entries()).filter(
+        ([userId, user]) => user.status === 'offline' && userId !== this.userId
+      );
+
+      if (offlineUsers.length > 0) {
+        console.log('\n--- Usuários Offline ---');
+        offlineUsers.forEach(([userId, user]) => {
+          console.log(`🔴 ${user.name} ${user.lastActivity}`);
+        });
       }
     }
-    if (this.users.size > 0) {
-      this.users.forEach((user, userId) => {
-        const statusIcon = user.status === 'online' ? '🟢' : '🔴';
-       console.log(`${statusIcon} ${user.name} (ID: ${userId}) - ${user.status}`);
-      });
-    }
 
-    const onlineCount = [...this.users.values()].filter(u => u.status === 'online').length;
-
-    console.log(`Total de usuários online (excluindo você): ${onlineCount}`);
+    console.log(`\nTotal de usuários online: ${onlineUsers.length}`);
     console.log('=========================\n');
   }
 
@@ -311,26 +400,29 @@ export class MQTTService {
   }
 
   showDebugInfo() {
+    const usersList = Array.from(this.users.keys());
+    const groupsList = Array.from(this.groups.keys());
+
     console.log(`
 === Informações de Debug ===
-Usuário: ${this.userName} (ID: ${this.userId})
+Usuário: ${this.userId}
 Broker URL: ${this.brokerUrl}
 Porta: ${this.port}
-Usuários Online: ${Array.from(this.users.keys()).join(', ')} (${this.users.size})   
-Grupos: ${Array.from(this.groups.keys()).join(', ')}
+Conectado: ${this.isConnected() ? '✅ Sim' : '❌ Não'}
+
+--- Dados em Memória ---
+Usuários Online (${this.users.size}): ${usersList.length > 0 ? usersList.join(', ') : 'Nenhum'}
+Grupos Conhecidos (${this.groups.size}): ${groupsList.length > 0 ? groupsList.join(', ') : 'Nenhum'}
+
+--- Estatísticas ---
 Conversas Ativas: ${this.conversationController.getActiveConversationCount()}
 Solicitações de Conversa: ${this.conversationController.getPendingRequestCount()}
-Conectado: ${this.isConnected() ? 'Sim' : 'Não'}
 =============================
     `);
   }
 
   public getUserId(): string {
     return this.userId;
-  }
-
-    public getUserName(): string { 
-    return this.userName;
   }
 
   public publish(topic: string, message: string) {
@@ -357,15 +449,22 @@ Conectado: ${this.isConnected() ? 'Sim' : 'Não'}
     await this.groupController.listGroups();
   }
 
-  // async joinGroup() {
-  //   await this.groupController.joinGroup();
-  // }
+  async joinGroup() {
+    await this.groupController.requestToJoinGroup();
+  }
+  async manageGroupRequests() {
+    await this.groupController.manageGroupRequests();
+  }
 
-  // async sendGroupMessage() {
-  //   await this.groupController.sendGroupMessage();
-  // }
+  async sendGroupMessage() {
+    await this.groupController.sendGroupMessage();
+  }
 
-  // async viewGroupMessages() {
-  //   await this.groupController.viewGroupMessages();
-  // }
+  async viewGroupMessages() {
+    await this.groupController.viewGroupMessages();
+  }
+
+  async deleteGroup() {
+    await this.groupController.deleteGroup();
+  }
 }

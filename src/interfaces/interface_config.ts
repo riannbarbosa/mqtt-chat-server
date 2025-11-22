@@ -2,11 +2,12 @@ export interface User {
   id: string;
   name: string;
   status: 'online' | 'offline';
+  lastActivity?: string;
 }
 
 export interface Group {
   name: string;
-  leader: string;
+  leaderId: string;
   members: string[];
   topic: string;
 }
@@ -55,9 +56,9 @@ export interface GroupJoinResponse {
 }
 
 export interface GroupUpdate {
-  type: 'group_created' | 'group_updated';
+  type: 'group_created' | 'group_updated' | 'group_deleted';
   name: string;
-  leader: string;
+  leaderId: string;
   members: string[];
   topic: string;
   timestamp: number;
