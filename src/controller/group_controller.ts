@@ -35,6 +35,8 @@ export class GroupController {
   private groupMessages: Map<string, string[]>;
   private pendingJoinRequests: Map<string, GroupJoinRequest[]>;
 
+  private currentActiveGroupTopic: string | null = null;
+
   constructor(mqttService: MQTTService, users: Map<string, User>) {
     this.mqttService = mqttService;
     this.users = users;
@@ -446,6 +448,10 @@ export class GroupController {
       return;
     }
 
+    if (this.currentActiveGroupTopic !== topic) {
+      return;
+    }
+
     const userColor = this.getUserColor(senderName);
 
     process.stdout.write('\r\x1b[K');
@@ -475,6 +481,9 @@ export class GroupController {
       console.log('❌ Você não é membro deste grupo.');
       return;
     }
+
+    this.currentActiveGroupTopic = group.topic;
+
     console.clear();
     console.log(`\n=== Chat do Grupo ${groupName} === [Digite '/sair' para voltar]`);
 
@@ -506,6 +515,7 @@ export class GroupController {
 
       if (messageText === '/sair') {
         console.log('Saindo do chat....');
+        this.currentActiveGroupTopic = null;
         break;
       }
 
@@ -590,9 +600,10 @@ export class GroupController {
       console.log(`${index + 1}. ${group.name} (Membros: ${group.members.length})`);
     });
 
-    const choice = await question('Digite o número do grupo a ser excluído (ou 0 para cancelar)');
+    const choice = await question('Número do grupo (0 cancelar): ');
 
     const choiceNum = parseInt(choice);
+
     if (choiceNum === 0) {
       return;
     }
